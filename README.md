@@ -8,4 +8,4 @@ Used to load transactions and abi files.
 Before running the module, make sure to install the required libraries:
 
 ```bash
-pip install requests asyncio aiohttp
+pip install asyncio aiohttp web3

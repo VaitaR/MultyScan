@@ -1,11 +1,14 @@
 import logging
 from functools import wraps
 import json
+from typing import List, Union
 
 import asyncio
 import aiohttp
 from web3 import Web3
 from eth_abi import decode
+
+
 
 def retry(attempts=3, delay=0.5):
     def decorator(func):
@@ -58,7 +61,7 @@ def decode_log(log, abi):
 
     return decoded_logs
 
-def input_convert(abi, data):
+def transactions_input_convert(data, abi):
     w3 = Web3(Web3.HTTPProvider(f''))
     contract = w3.eth.contract(address = '', abi = abi) 
     for transaction in data:
@@ -129,9 +132,9 @@ class async_chain_scanner:
 
     @retry(attempts=3, delay=2)
     async def get_transactions_chunk(
-        self, address, module:str, action:str, 
-        startblock=0, endblock=99999999, page=1, offset=10000, 
-        order='asc', abi = None, **kwargs):
+        self, address, module:str, action:str, abi=None,
+        startblock=0, endblock=99999999, offset=10000,  
+        **kwargs):
 
         params = {
             'module': module,
@@ -139,13 +142,14 @@ class async_chain_scanner:
             'address': address,
             'startblock': startblock,
             'endblock': endblock,
-            'page': page,
+            'page': 1,
             'offset': offset,
-            'sort': order,
+            'sort': 'asc',
             'apikey': self.api_key
         }
+        # print(abi)
         params.update(kwargs)
-
+        print(f"request params: {params}")
         if address is None or action is None:
             raise ValueError("address and action cannot be None")
         
@@ -173,14 +177,7 @@ class async_chain_scanner:
                 #     return async_chain_scanner.input_convert(module=module, abi=abi, data=data['result'])
 
                 # use in future web3 https://github.com/ethereum/web3.py/blob/d6d1084d155485ce6eb92408ee778aab016ee6d0/web3/_utils/method_formatters.py#L244
-                if module == 'logs':
-                    data['result'] = transform_logs(data['result'])
-                    for log in data['result']:
-                        decoded_log = decode_log(log, abi)
-                        log.update(decoded_log)
-                    return data['result']
-                #   return async_chain_scanner.transform_logs(data['result'])
-                
+                # move in anpother function
                 return data['result']   
 
     @retry(attempts=3, delay=2)
@@ -206,46 +203,48 @@ class async_chain_scanner:
                 print(f'requests count: {self.requests_count}')
                 return json.loads(abi)
 
-    async def fetch_transactions_for_address(
-            self, address:str, module:str, action:str, abi = None, startblock=0, endblock=99999999, offset=10000, **kwargs):
-        # if address is None or action is None:
-        #     raise ValueError("address and action cannot be None") 
-        # if action not in ['txlist', 'txlistinternal']:
-        #     raise ValueError(f"Unsupported action: {action}")
+    async def fetch_transactions_for_address(self, address:str, module: str, action: str, abi: List = None, 
+                startblock: int = 0, endblock: int = 99999999, offset: int = 10000, **kwargs):
         pagination_page = 1
-
         last_block = startblock
-        all_transactions = []
+        address_transactions = []
+
         while last_block < endblock:
-            print(f'page: {pagination_page}')
+            print(f'Address: {address}, Page: {pagination_page}')
             transactions = await self.get_transactions_chunk(
-                address = address, module = module, action = action, abi = abi, 
-                startblock = last_block, endblock = endblock, page = 1, offset = offset, **kwargs)
+                address=address, module=module, action=action, abi=abi, startblock=0, endblock=99999999, offset=10000, 
+                **kwargs)
             if not transactions:
                 break
-            all_transactions = all_transactions + transactions
-            if len(transactions) < offset:
+            address_transactions += transactions
+            if len(transactions) < offset or last_block == transactions[-1]['blockNumber']:
                 break
-            if last_block == transactions[-1]['blockNumber']:
-                break
-            if isinstance(transactions[-1]['blockNumber'], int):
-                last_block = transactions[-1]['blockNumber']
-            else:
-                last_block = int(transactions[-1]['blockNumber'], 16)
-            # if self.requests_count >= 3:
-            #     print('requests limit reached')
-            #     return all_transactions
+
+            last_block = int(transactions[-1]['blockNumber'], 16) if isinstance(transactions[-1]['blockNumber'], str) else transactions[-1]['blockNumber']
             pagination_page += 1
 
-        # clear duplicates 
-
-        return all_transactions
+        return address_transactions
 
     async def fetch_transactions(
-            self, addresses:list, module:str, action:str, abi = None,
-            startblock=0, endblock=99999999, offset=10000, **kwargs):
-        tasks = [self.fetch_transactions_for_address(
-                address = address, module = module, action = action, abi = abi, 
-                startblock = startblock, endblock = endblock, page = 1, offset = offset, **kwargs) for address in addresses]
-        results = await asyncio.gather(*tasks)
+        self, addresses: Union[str, List[str]], module: str, action: str, abi: List = None, 
+        startblock: int = 0, endblock: int = 99999999, offset: int = 10000, **kwargs):
+
+        if isinstance(addresses, str):
+            address = addresses
+            task = self.fetch_transactions_for_address(address=address, module=module, action=action, abi=abi,
+                    startblock=startblock, endblock=endblock, offset=offset, **kwargs)
+            results = await asyncio.gather(task)
+        else:
+            tasks = [self.fetch_transactions_for_address(address=address, module=module, action=action, abi=abi,
+                    startblock=startblock, endblock=endblock, offset=offset, **kwargs) for address in addresses]
+            results = await asyncio.gather(*tasks)
+
+        # if abi is not None and module == 'account':
+        #     results = transactions_input_convert(results, abi)
+        
+        # if module == 'logs':
+        #     results = transform_logs(results)
+        #     if abi is not None:
+        #         results = decode_log(results, abi)
+
         return results

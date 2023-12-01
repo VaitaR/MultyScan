@@ -27,8 +27,14 @@ def retry(attempts=3, delay=0.5):
         return wrapper
     return decorator
 
-def decode_log(logs, abi):
+def decode_logs_data(logs, abi):
     for log in logs:
+        # Convert hex values to integers
+        keys_to_convert = ['blockNumber', 'timeStamp', 'gasPrice', 'gasUsed', 'logIndex', 'transactionIndex']
+        for key in keys_to_convert:
+            if key in log:
+                log[key] = int(log[key], 16)
+        # convert logs data
         w3 = Web3(Web3.HTTPProvider(f''))    
         receipt_event_signature_hex = log['topics'][0]
         event_list = [item for item in abi if item['type'] == 'event']
@@ -62,28 +68,21 @@ def decode_log(logs, abi):
 
     return logs
 
-def transactions_input_convert(data, abi):
+def decode_transactions_input(data, abi):
     w3 = Web3(Web3.HTTPProvider(f''))
     contract = w3.eth.contract(address = '', abi = abi) 
     for transaction in data:
         # add checking for oX
         try:
-            decoded_input = contract.decode_function_input(transaction['input'])
-            transaction['decoded'] = decoded_input
+            decoded_func, decoded_input = contract.decode_function_input(transaction['input'])
+            transaction['decoded_func'] = decoded_func
+            transaction['decoded_input'] = decoded_input
         except:
-            transaction['decoded'] = None
-            print(f"Error: transaction - {transaction['hash']}") 
-            print(f"Error for input - {transaction['input']}")    
+            transaction['decoded_func'] = None
+            transaction['decoded_input'] = None
+            # print(f"Error: transaction - {transaction['hash']}") 
+            # print(f"Error for input - {transaction['input']}")    
     return data
-
-# need change
-def transform_logs(logs:list):
-    keys_to_convert = ['blockNumber', 'timeStamp', 'gasPrice', 'gasUsed', 'logIndex', 'transactionIndex']
-    for dictionary in logs:
-        for key in keys_to_convert:
-            if key in dictionary:
-                dictionary[key] = int(dictionary[key], 16)
-    return logs
 
 class async_chain_scanner:
     chain_configs = {

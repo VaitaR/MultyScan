@@ -27,39 +27,40 @@ def retry(attempts=3, delay=0.5):
         return wrapper
     return decorator
 
-def decode_log(log, abi):
-    w3 = Web3(Web3.HTTPProvider(f''))
-    decoded_logs = []
-    
-    receipt_event_signature_hex = log['topics'][0]
-    for event in [item for item in abi if item['type'] == 'event']:
-        # Generate event signature hash
-        name = event['name']
-        inputs = ",".join([param['type'] for param in event['inputs']])
-        event_signature_text = f"{name}({inputs})"
-        event_signature_hex = w3.to_hex(w3.keccak(text=event_signature_text))
+def decode_log(logs, abi):
+    for log in logs:
+        w3 = Web3(Web3.HTTPProvider(f''))    
+        receipt_event_signature_hex = log['topics'][0]
+        event_list = [item for item in abi if item['type'] == 'event']
 
-       # Check if the event signature matches the log's signature
-        if event_signature_hex == receipt_event_signature_hex:
-            decoded_log = {"event": event['name']}
+        for event in event_list:
+            # Generate event signature hash
+            name = event['name']
+            inputs = ",".join([param['type'] for param in event['inputs']])
+            event_signature_text = f"{name}({inputs})"
+            event_signature_hex = w3.to_hex(w3.keccak(text=event_signature_text))
 
-            # Decode indexed topics
-            indexed_params = [input for input in event['inputs'] if input['indexed']]
-            for i, param in enumerate(indexed_params):
-                topic = log['topics'][i+1]
-                decoded_log[param['name']] = decode([param['type']], bytes.fromhex(topic[2:]))[0]
+            # Check if the event signature matches the log's signature
+            if event_signature_hex == receipt_event_signature_hex:
+                decoded_log = {"event": event['name']}
 
-            # Decode non-indexed data
-            non_indexed_params = [input for input in event['inputs'] if not input['indexed']]
-            non_indexed_types = [param['type'] for param in non_indexed_params]
-            non_indexed_values = decode(non_indexed_types, bytes.fromhex(log['data'][2:]))
-            for i, param in enumerate(non_indexed_params):
-                decoded_log[param['name']] = non_indexed_values[i]
+                # Decode indexed topics
+                indexed_params = [input for input in event['inputs'] if input['indexed']]
+                for i, param in enumerate(indexed_params):
+                    topic = log['topics'][i+1]
+                    decoded_log[param['name']] = decode([param['type']], bytes.fromhex(topic[2:]))[0]
 
-            decoded_logs.append(decoded_log)
-            break  # Break the inner loop as we've found the matching event
+                # Decode non-indexed data
+                non_indexed_params = [input for input in event['inputs'] if not input['indexed']]
+                non_indexed_types = [param['type'] for param in non_indexed_params]
+                non_indexed_values = decode(non_indexed_types, bytes.fromhex(log['data'][2:]))
+                for i, param in enumerate(non_indexed_params):
+                    decoded_log[param['name']] = non_indexed_values[i]
 
-    return decoded_logs
+                log['decoded'] = decoded_log
+                break  # Break the inner loop as we've found the matching event
+
+    return logs
 
 def transactions_input_convert(data, abi):
     w3 = Web3(Web3.HTTPProvider(f''))

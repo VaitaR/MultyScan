@@ -206,21 +206,29 @@ class async_chain_scanner:
     async def fetch_transactions_for_address(self, address:str, module: str, action: str, abi: List = None, 
                 startblock: int = 0, endblock: int = 99999999, offset: int = 10000, **kwargs):
         pagination_page = 1
-        last_block = startblock
+        local_start = startblock
         address_transactions = []
 
-        while last_block < endblock:
-            print(f'Address: {address}, Page: {pagination_page}')
+        while local_start < endblock:
             transactions = await self.get_transactions_chunk(
-                address=address, module=module, action=action, abi=abi, startblock=0, endblock=99999999, offset=10000, 
+                address=address, module=module, action=action, abi=abi, startblock=local_start, endblock=99999999, offset=10000, 
                 **kwargs)
+            print(f"Address: {address}, Start block: {local_start}, End block: {endblock},Transactions: {len(transactions)}") 
             if not transactions:
                 break
             address_transactions += transactions
-            if len(transactions) < offset or last_block == transactions[-1]['blockNumber']:
+            if len(transactions) < offset:
+                print('No more transactions')
                 break
-
-            last_block = int(transactions[-1]['blockNumber'], 16) if isinstance(transactions[-1]['blockNumber'], str) else transactions[-1]['blockNumber']
+            if local_start == transactions[-1]['blockNumber']:
+                print('Last block reached')
+                break
+            if module == 'logs':
+                local_start = int(transactions[-1]['blockNumber'], 16)
+            else:    
+                local_start = int(transactions[-1]['blockNumber'])
+            # if isinstance(transactions[-1]['blockNumber'], str)
+            # last_block = int(transactions[-1]['blockNumber'], 16) if isinstance(transactions[-1]['blockNumber'], str) else transactions[-1]['blockNumber']
             pagination_page += 1
 
         return address_transactions
@@ -234,17 +242,12 @@ class async_chain_scanner:
             task = self.fetch_transactions_for_address(address=address, module=module, action=action, abi=abi,
                     startblock=startblock, endblock=endblock, offset=offset, **kwargs)
             results = await asyncio.gather(task)
+
         else:
             tasks = [self.fetch_transactions_for_address(address=address, module=module, action=action, abi=abi,
                     startblock=startblock, endblock=endblock, offset=offset, **kwargs) for address in addresses]
             results = await asyncio.gather(*tasks)
 
-        # if abi is not None and module == 'account':
-        #     results = transactions_input_convert(results, abi)
-        
-        # if module == 'logs':
-        #     results = transform_logs(results)
-        #     if abi is not None:
-        #         results = decode_log(results, abi)
+        results = [item for sublist in results for item in sublist]
 
         return results
